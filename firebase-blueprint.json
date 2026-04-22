@@ -1,0 +1,42 @@
+{
+  "entities": {
+    "Haircut": {
+      "title": "Haircut",
+      "description": "Estilo de corte de cabelo ou serviço de barbearia.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "duration": { "type": "number" },
+        "image": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["name", "price", "duration", "image"]
+    },
+    "Appointment": {
+      "title": "Appointment",
+      "description": "Agendamento de um cliente para um serviço.",
+      "type": "object",
+      "properties": {
+        "customerName": { "type": "string" },
+        "customerEmail": { "type": "string" },
+        "haircutId": { "type": "string" },
+        "startTime": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["waiting", "in-service", "completed", "cancelled"] },
+        "uid": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["customerName", "haircutId", "startTime", "status", "uid"]
+    }
+  },
+  "firestore": {
+    "/haircuts": {
+      "schema": "Haircut",
+      "description": "Catálogo de serviços disponíveis."
+    },
+    "/appointments": {
+      "schema": "Appointment",
+      "description": "Lista de agendamentos e fila."
+    }
+  }
+}

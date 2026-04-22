@@ -1,0 +1,5 @@
+{
+  "name": "Remix: BarberTime",
+  "description": "Sistema completo para barbearias com agendamento inteligente, fila em tempo real e catálogo de estilos.",
+  "requestFramePermissions": []
+}
