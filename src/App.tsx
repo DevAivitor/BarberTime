@@ -85,9 +85,10 @@ export default function App() {
   const [isLoadingAppointments, setIsLoadingAppointments] = useState(true);
   const [selectedHaircut, setSelectedHaircut] = useState<Haircut | null>(null);
   const [customerName, setCustomerName] = useState('');
+  const [bookingDate, setBookingDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [bookingTime, setBookingTime] = useState('');
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'catalog' | 'queue' | 'admin'>('catalog');
+  const [activeTab, setActiveTab] = useState<'catalog' | 'queue' | 'my-appointments' | 'admin'>('catalog');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -107,7 +108,7 @@ export default function App() {
   const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
 
-  const isAdmin = user?.email === 'contato@arthurdiniz.com';
+  const isAdmin = user?.email === 'vitorsori4@gmail.com' || user?.email === 'contato@arthurdiniz.com';
 
   const handleDatabaseError = (error: any, operationType: OperationType, table: string) => {
     const errInfo = {
@@ -117,7 +118,7 @@ export default function App() {
       authInfo: {
         userId: user?.uid || 'anonymous',
         email: user?.email || 'anonymous',
-        emailVerified: false, // Not easily available from Supabase session here without more logic
+        emailVerified: false,
         isAnonymous: !user,
         tenantId: '',
         providerInfo: []
@@ -320,10 +321,38 @@ export default function App() {
       setError('Você precisa estar logado para agendar.');
       return;
     }
-    if (!selectedHaircut || !customerName || !bookingTime) return;
+    if (!selectedHaircut || !customerName || !bookingTime || !bookingDate) return;
 
     try {
-      const startTime = new Date(`${format(new Date(), 'yyyy-MM-dd')}T${bookingTime}`).toISOString();
+      const startTimeDate = new Date(`${bookingDate}T${bookingTime}`);
+      const startTime = startTimeDate.toISOString();
+
+      // Basic Conflict Check
+      const duration = selectedHaircut.duration || 30;
+      const endTime = new Date(startTimeDate.getTime() + duration * 60000).toISOString();
+
+      const overlaps = appointments.some(app => {
+        if (app.status === 'cancelled') return false;
+        const appStart = parseISO(app.startTime).getTime();
+        const appDuration = haircuts.find(h => h.id === app.haircutId)?.duration || 30;
+        const appEnd = appStart + appDuration * 60000;
+        
+        const newStart = startTimeDate.getTime();
+        const newEnd = newStart + duration * 60000;
+
+        return (newStart < appEnd && newEnd > appStart);
+      });
+
+      if (overlaps) {
+        setError('Este horário já está ocupado. Por favor, escolha outro.');
+        return;
+      }
+
+      if (startTimeDate < new Date()) {
+        setError('O horário deve ser no futuro.');
+        return;
+      }
+
       await addDoc(collection(db, 'appointments'), {
         customerName,
         customerEmail: user.email,
@@ -338,6 +367,7 @@ export default function App() {
       setCustomerName('');
       setBookingTime('');
       setSelectedHaircut(null);
+      setSuccess('Agendamento realizado com sucesso!');
       setActiveTab('queue');
     } catch (err) {
       handleDatabaseError(err, OperationType.CREATE, 'appointments');
@@ -365,6 +395,12 @@ export default function App() {
       handleDatabaseError(err, OperationType.WRITE, 'haircuts');
     }
   };
+
+  const myAppointments = useMemo(() => {
+    if (!user) return [];
+    return appointments.filter(app => app.uid === user.uid)
+      .sort((a, b) => parseISO(b.startTime).getTime() - parseISO(a.startTime).getTime());
+  }, [appointments, user]);
 
   const sortedAppointments = useMemo(() => {
     return [...appointments]
@@ -467,6 +503,14 @@ export default function App() {
             >
               Fila ao Vivo
             </button>
+            {user && (
+              <button 
+                onClick={() => setActiveTab('my-appointments')}
+                className={cn("hover:opacity-100 transition-opacity", activeTab === 'my-appointments' && "opacity-100 text-amber-500")}
+              >
+                Meus Agendamentos
+              </button>
+            )}
             {isAdmin && (
               <button 
                 onClick={() => setActiveTab('admin')}
@@ -765,6 +809,68 @@ export default function App() {
                   </div>
                 </div>
               </div>
+            </motion.section>
+          ) : activeTab === 'my-appointments' ? (
+            <motion.section 
+              key="my-appointments"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-6 max-w-2xl mx-auto"
+            >
+              <h3 className="text-2xl font-bold uppercase tracking-tighter flex items-center gap-3 mb-8">
+                <Calendar className="text-amber-500" /> Meus Agendamentos
+              </h3>
+              {myAppointments.length > 0 ? myAppointments.map((app) => (
+                <div 
+                  key={app.id} 
+                  className="bg-white/5 border border-white/10 p-6 rounded-3xl flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-6">
+                    <div className={cn(
+                      "w-12 h-12 rounded-full flex items-center justify-center",
+                      app.status === 'completed' ? "bg-green-500/20 text-green-500" :
+                      app.status === 'cancelled' ? "bg-red-500/20 text-red-500" :
+                      app.status === 'in-service' ? "bg-amber-500/20 text-amber-500 animate-pulse" :
+                      "bg-white/10 text-white/40"
+                    )}>
+                      {app.status === 'completed' ? <CheckCircle2 /> : 
+                       app.status === 'cancelled' ? <XCircle /> : <Clock />}
+                    </div>
+                    <div>
+                      <h4 className="font-bold uppercase tracking-tight">
+                        {haircuts.find(h => h.id === app.haircutId)?.name}
+                      </h4>
+                      <p className="text-xs text-white/40 uppercase tracking-widest mt-1">
+                        {format(parseISO(app.startTime), "dd 'de' MMM 'às' HH:mm")}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className={cn(
+                      "text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full",
+                      app.status === 'completed' ? "bg-green-500/10 text-green-500" :
+                      app.status === 'cancelled' ? "bg-red-500/10 text-red-500" :
+                      app.status === 'in-service' ? "bg-amber-500/10 text-amber-500" :
+                      "bg-white/5 text-white/40"
+                    )}>
+                      {app.status === 'waiting' ? 'Aguardando' :
+                       app.status === 'in-service' ? 'Em Atendimento' :
+                       app.status === 'completed' ? 'Concluído' : 'Cancelado'}
+                    </span>
+                  </div>
+                </div>
+              )) : (
+                <div className="py-20 text-center border-2 border-dashed border-white/10 rounded-3xl">
+                  <p className="text-white/20 uppercase tracking-widest font-bold">Você não possui agendamentos ainda.</p>
+                  <button 
+                    onClick={() => setActiveTab('catalog')}
+                    className="mt-4 text-amber-500 text-xs font-bold uppercase tracking-widest hover:underline"
+                  >
+                    Ver Catálogo
+                  </button>
+                </div>
+              )}
             </motion.section>
           ) : (
             <motion.section 
@@ -1182,17 +1288,30 @@ export default function App() {
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-[10px] uppercase tracking-[0.2em] font-bold text-amber-500">Horário</label>
-                      <input 
-                        required
-                        type="time"
-                        value={bookingTime}
-                        onChange={(e) => setBookingTime(e.target.value)}
-                        className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 focus:border-amber-500 focus:outline-none transition-colors [color-scheme:dark]"
-                      />
-                    </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-[0.2em] font-bold text-amber-500">Data</label>
+                <input 
+                  required
+                  type="date"
+                  min={format(new Date(), 'yyyy-MM-dd')}
+                  max={format(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd')}
+                  value={bookingDate}
+                  onChange={(e) => setBookingDate(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 focus:border-amber-500 focus:outline-none transition-colors [color-scheme:dark]"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-[0.2em] font-bold text-amber-500">Horário</label>
+                <input 
+                  required
+                  type="time"
+                  value={bookingTime}
+                  onChange={(e) => setBookingTime(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 focus:border-amber-500 focus:outline-none transition-colors [color-scheme:dark]"
+                />
+              </div>
+            </div>
                     <div className="space-y-2">
                       <label className="text-[10px] uppercase tracking-[0.2em] font-bold text-amber-500">Corte</label>
                       <select 
@@ -1205,7 +1324,6 @@ export default function App() {
                         ))}
                       </select>
                     </div>
-                  </div>
 
                   <div className="pt-4">
                     <button 
